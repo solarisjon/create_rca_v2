@@ -1,0 +1,15 @@
+[Documents]
+uploads-path = ./uploads
+prompts-path = ./prompts
+
+[LLM]
+key = {openai llm key}
+OPENAI_USERNAME = {openai username}
+OPENAI_ENDPOINT = {openai endpoint}
+OPENAI_API_KEY = user={username}&key={key}
+OPENAI_MODEL=gpt-4o
+#OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+
+[DocTypes]
+a = 1
