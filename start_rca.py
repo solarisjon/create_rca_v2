@@ -94,10 +94,9 @@ else:
 
 
 
-prompt_type = "result_initial_analysis"
 temperature = 0.5
-document_location, llm_creds = handle_config()
-uploads_path = document_location["uploads-path"]
+file_location, llm_creds = handle_config()
+uploads_path = file_location["uploads-path"]
 
 print(f'{uploaded_files}')
 if st.button("Start"):

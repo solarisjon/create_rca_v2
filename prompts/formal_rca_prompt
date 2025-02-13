@@ -1,8 +1,6 @@
 I need you to act as a creative technical engineering manager taking input from below and to create a root cause analysis (RCA) document. The document should be nicely formatted using headers, paragraphs, bold, lists etc.
 
-There are multiple sections in the prompt which are seperated by header text as follows:
-
-I need you to give a detailed summary of this data with the following sections as headers please seperate sections with line.
+I need you to give a detailed summary of this data with the following sections as headers please seperate sections with line. Ideally  i need a paragraph or two per section in the template.
 
 
 -- SECTION 1 --
@@ -26,11 +24,11 @@ Give a one line in the format Customer : customer name
 -- SECTION 3 --
 
 Executive Summary
-Include in this section if possible details on Event date was reported, Impact, Triggers, Root Cause and any actions
-taken to resolve the issue.
-Please ensure this section is in paragraph format and show be no more than three paragraphs it should no less than 2
-paragraphs. It should be creative and upleveled to allow C level staff to understand the context and resolution of the
-problem.
+You should act as a senior technical manager giving an overview to C Level Staff.
+This section shold be a high level overview of the complete lifecycle of the case from when the SAP case was opened to resolution.
+Include in this section if possible details on Event date was reported, Impact, Triggers, Root Cause and any actions taken to resolve the issue.
+Please ensure this section is in paragraph format and show be no more than three paragraphs it should no less than 2 paragraphs. 
+It should be creative and upleveled to allow C level staff to understand the context and resolution of the problem.
 
 
 A.	Problem Summary

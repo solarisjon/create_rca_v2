@@ -5,13 +5,13 @@ def load_prompts(prompts_path):
         dict: Dictionary of prompts.
     """
     prompts = {
-        'cpe': get_prompt(['cpe_prompt']),
-        'contap': get_prompt(['contap_prompt']),
-        'sap': get_prompt(['sap_prompt']),
-        'netapp': get_prompt(['netapp_prompt']),
-        'initial_analysis': get_prompt(['initial_analysis_prompt']),
-        'formal_rca': get_prompt(['formal_rca_prompt']),
-        'context': get_prompt(['context'])
+        'cpe': get_prompt(['cpe_prompt'], prompts_path),
+        'contap': get_prompt(['contap_prompt'], prompts_path),
+        'sap': get_prompt(['sap_prompt'], prompts_path),
+        'netapp': get_prompt(['netapp_prompt'], prompts_path),
+        'initial_analysis': get_prompt(['initial_analysis_prompt'], prompts_path),
+        'formal_rca': get_prompt(['formal_rca_prompt'], prompts_path),
+        'context': get_prompt(['context'], prompts_path)
     }
     return prompts
 

@@ -16,7 +16,7 @@ def handle_config():
     return data_info, llmproxy_creds
 
 
-def start_processing_request(data_path, temperature, document_type):
+def start_processing_request(temperature, document_type):
     """
     The primary function that kicks everything off
 
@@ -29,6 +29,8 @@ def start_processing_request(data_path, temperature, document_type):
 
     # Read in the configuration file to get key parameters.
     data_info, llm_creds = handle_config()
+    upload_path = data_info["uploads-path"]
+    prompts_path = data_info["prompts-path"]
     OPENAI_ENDPOINT = llm_creds["OPENAI_ENDPOINT"]
     OPENAI_API_KEY = llm_creds["OPENAI_API_KEY"]
     OPENAI_MODEL = llm_creds["OPENAI_MODEL"]
@@ -39,14 +41,14 @@ def start_processing_request(data_path, temperature, document_type):
     session = create_session(OPENAI_API_KEY, OPENAI_ENDPOINT)
 
     print("Load Documented")
-    documents = load_documents(data_path)
+    documents = load_documents(upload_path)
     print("Chunk the Documents")
     chunked_data = chunk_documents(documents)
     print(chunked_data[0])
     add_to_chroma(chunked_data, OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAI_API_KEY)
 
     print("Obtain prompts")
-    available_prompts = load_prompts()
+    available_prompts = load_prompts(prompts_path)
     document_type_prompt = ""
     for key, value in available_prompts.items():
         if key == document_type:
