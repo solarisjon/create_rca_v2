@@ -4,7 +4,7 @@ import io
 import os
 import tempfile
 from langchain.document_loaders import PyPDFDirectoryLoader
-# A test for SCM
+# A test for SCM V2
 
 # Set the title of the app
 st.set_page_config(page_title="NetApp RCA and Case Generator", page_icon="netapp_logo.png", layout="wide")
