@@ -13,7 +13,8 @@ def handle_config():
     config_object.read("config.ini")
     file_info = config_object["Documents"]
     llmproxy_creds = config_object["LLM"]
-    return file_info, llmproxy_creds
+    rag_query = config_object["RAG"]
+    return file_info, llmproxy_creds, rag_query
 
 
 def start_processing_request(data_path, temperature, document_type):

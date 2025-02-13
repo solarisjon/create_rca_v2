@@ -16,7 +16,7 @@ def handle_config():
     return data_info, llmproxy_creds
 
 
-def start_processing_request(temperature, document_type):
+def start_processing_request(temperature, document_type, rag_query_scope_val):
     """
     The primary function that kicks everything off
 
@@ -58,7 +58,7 @@ def start_processing_request(temperature, document_type):
     print("Start Query")
 
     response = query_rag(document_prompt, \
-            OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature)
+            OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature, rag_query_scope_val)
     return  response
 
 

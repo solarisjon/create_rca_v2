@@ -28,13 +28,13 @@ def main():
     query_rag(query_text)
 
 
-def query_rag(query_text: str, OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature):
+def query_rag(query_text: str, OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature, rag_query_scope_val):
     # Prepare the DB.
     embedding_function = get_embedding_function(OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAI_KEY)
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
     # Search the DB.
-    results = db.similarity_search_with_score(query_text, k=20)
+    results = db.similarity_search_with_score(query_text, k=rag_query_scope_val)
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
