@@ -3,7 +3,10 @@ import os
 import shutil
 from handle_config_file import handle_config
 from create_rcav2 import start_processing_request as process_request
+from handle_exporting import convert_html_to_pdf
+from conversion_functions import markdown_to_html
 
+response = ""
 
 # Function to clean and recreate the uploads directory
 def clean_and_recreate_directory(directory_path):
@@ -120,10 +123,19 @@ if st.button("Start"):
         print(f'file path is {file_path}')
         response = process_request(temperature, document_type, rag_query_scope_val)
         st.write(response)
+        html_response = markdown_to_html(response)
+        #st.sidebar.button("Export to PDF", on_click=export_to_pdf, args=(html_response,))
+        pdf_response = convert_html_to_pdf(html_response)
+        st.sidebar.download_button(
+            label="Download PDF",
+            data=pdf_response,
+            file_name="output.pdf",
+            mime="application/pdf"
+        )
+
 
     else:
         st.write("Please upload CPE, CONTAP, SAP files using the sidebar.")
-
 
 
 
