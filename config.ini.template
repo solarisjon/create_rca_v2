@@ -1,6 +1,7 @@
 [Documents]
 uploads-path = ./uploads
 prompts-path = ./prompts
+chroma-path = ./chroma
 
 [LLM]
 key = {openai llm key}
@@ -11,5 +12,9 @@ OPENAI_MODEL=gpt-4o
 #OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 
-[DocTypes]
-a = 1
+[RAG]
+RAQ_QUERY_SCOPE_DEFAULT = 21
+
+[CHROMA]
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 80

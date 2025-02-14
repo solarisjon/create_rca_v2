@@ -17,8 +17,8 @@ def clean_and_recreate_directory(directory_path):
 # Grab handles for the config data
 file_location, llm_creds, rag_info = handle_config()
 rag_query_scope_default = rag_info["RAG_QUERY_SCOPE_DEFAULT"]
+chroma_path = file_location["chroma-path"]
 
-print(f'rag scope = {rag_query_scope_default}')
 
 # Set the title of the app
 st.set_page_config(page_title="NetApp Formal RCA and Case Summarizer", page_icon="netapp_logo.png", layout="wide")
@@ -110,6 +110,7 @@ uploads_path = file_location["uploads-path"]
 
 print(f'{uploaded_files}')
 if st.button("Start"):
+    clean_and_recreate_directory(chroma_path)
     if uploaded_files:
         # Ensure the uploads directory is clean
         clean_and_recreate_directory(uploads_path)
@@ -132,8 +133,6 @@ if st.button("Start"):
             file_name="output.pdf",
             mime="application/pdf"
         )
-
-
     else:
         st.write("Please upload CPE, CONTAP, SAP files using the sidebar.")
 

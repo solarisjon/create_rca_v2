@@ -9,9 +9,6 @@ from langchain.vectorstores.chroma import Chroma
 from langchain_chroma import Chroma
 
 
-CHROMA_PATH = "chroma"
-
-
 def main():
 
     # Check if the database should be cleared (using the --clear flag).
@@ -43,10 +40,11 @@ def split_documents(documents: list[Document]):
     return text_splitter.split_documents(documents)
 
 
-def add_to_chroma(chunks: list[Document], OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY,):
+def add_to_chroma(chunks: list[Document], OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY, \
+                                            chroma_path, chroma_overlap, chroma_size):
     # Load the existing database.
     db = Chroma(
-        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function(OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY)
+        persist_directory=chroma_path, embedding_function=get_embedding_function(OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY)
     )
 
     # Calculate Page IDs.
@@ -101,9 +99,9 @@ def calculate_chunk_ids(chunks):
     return chunks
 
 
-def clear_database():
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
+def clear_database(chroma_path):
+    if os.path.exists(chroma_path):
+        shutil.rmtree(chroma_path)
 
 
 if __name__ == "__main__":
