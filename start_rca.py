@@ -1,23 +1,16 @@
 import streamlit as st
 import os
-import shutil
-from handle_config_file import handle_config
 from create_rcav2 import start_processing_request as process_request
 from handle_exporting import convert_html_to_pdf
 from conversion_functions import markdown_to_html
+from cleanup import clean_and_recreate_directory
+from config_objects import Document_Config, LLM_Config, RAG_Config, Chroma_Config
 
+# Initialize some stuff
 response = ""
+uploaded_files = None
+#doc_config, llm_config, rag_config, chroma_config = handle_config()
 
-# Function to clean and recreate the uploads directory
-def clean_and_recreate_directory(directory_path):
-    if os.path.exists(directory_path):
-        shutil.rmtree(directory_path)
-    os.makedirs(directory_path)
-
-# Grab handles for the config data
-file_location, llm_creds, rag_info = handle_config()
-rag_query_scope_default = rag_info["RAG_QUERY_SCOPE_DEFAULT"]
-chroma_path = file_location["chroma-path"]
 
 
 # Set the title of the app
@@ -90,7 +83,7 @@ temperature = st.sidebar.slider("Temperature", min_value=0.0, max_value=3.0, val
 
 # Sidebar for setting RAG Query Scope
 st.sidebar.header("Set a value for how wide a case search to scope")
-rag_query_scope_val = st.sidebar.slider("RAG Query Scope", min_value=5, max_value=50, value=int(rag_query_scope_default), step=1)
+rag_query_scope_val = st.sidebar.slider("RAG Query Scope", min_value=5, max_value=50, value=int(RAG_Config.RAG_QUERY_SCOPE_DEFAULT), step=1)
 
 
 # Main window content
@@ -106,7 +99,9 @@ else:
 
 
 
-uploads_path = file_location["uploads-path"]
+uploads_path = Document_Config.UPLOADS_PATH
+chroma_path = Document_Config.CHROMA_PATH
+
 
 print(f'{uploaded_files}')
 if st.button("Start"):
@@ -122,7 +117,7 @@ if st.button("Start"):
                 f.write(uploaded_file.getbuffer())
             file_paths.append(file_path)
         print(f'file path is {file_path}')
-        response = process_request(temperature, document_type, rag_query_scope_val)
+        response = process_request(temperature, document_type, rag_query_scope_val, Document_Config, LLM_Config)
         st.write(response)
         html_response = markdown_to_html(response)
         #st.sidebar.button("Export to PDF", on_click=export_to_pdf, args=(html_response,))

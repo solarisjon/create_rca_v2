@@ -1,24 +1,11 @@
 from handle_docs import load_documents, chunk_documents
-from configparser import ConfigParser
 from populate_database import add_to_chroma
 from query_rag import query_rag
 from handle_prompts import load_prompts
 from authenticate_ai import create_session
 
-def handle_config():
-    # Create a ConfigParser object
-    config_object = ConfigParser()
 
-    # Read the configuration from the 'config.ini' file
-    config_object.read("config.ini")
-    data_info = config_object["Documents"]
-    llmproxy_creds = config_object["LLM"]
-    rag_info = config_object["RAG"]
-    chroma_info = config_object["CHROMA"]
-    return data_info, llmproxy_creds, rag_info, chroma_info
-
-
-def start_processing_request(temperature, document_type, rag_query_scope_val):
+def start_processing_request(temperature, document_type, rag_query_scope_val, doc_config, llm_config):
     """
     The primary function that kicks everything off
 
@@ -29,32 +16,20 @@ def start_processing_request(temperature, document_type, rag_query_scope_val):
         
     """
 
-    # Read in the configuration file to get key parameters.
-    data_info, llm_creds, rag_info, chroma_info = handle_config()
-    upload_path = data_info["uploads-path"]
-    prompts_path = data_info["prompts-path"]
-    chroma_path = data_info["chroma-path"]
-    OPENAI_ENDPOINT = llm_creds["OPENAI_ENDPOINT"]
-    OPENAI_API_KEY = llm_creds["OPENAI_API_KEY"]
-    OPENAI_MODEL = llm_creds["OPENAI_MODEL"]
-    OPENAI_EMBEDDING_MODEL= llm_creds["OPENAI_EMBEDDING_MODEL"]
-    OPENAI_USERNAME = llm_creds["OPENAI_USERNAME"]
-    CHUNK_OVERLAP = chroma_info["CHUNK-OVERLAP"]
-    CHUNK_SIZE = chroma_info["CHUNK-SIZE"]
 
     # Create a session handle to the LLM
-    session = create_session(OPENAI_API_KEY, OPENAI_ENDPOINT)
+    session = create_session(llm_config.OPENAI_API_KEY, llm_config.OPENAI_ENDPOINT)
 
     print("Load Documented")
-    documents = load_documents(upload_path)
+    documents = load_documents(doc_config.UPLOADS_PATH)
     print("Chunk the Documents")
     chunked_data = chunk_documents(documents)
     print(chunked_data[0])
-    add_to_chroma(chunked_data, OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAI_API_KEY, \
-                   chroma_path, CHUNK_OVERLAP, CHUNK_SIZE)
+    add_to_chroma(chunked_data, llm_config.OPENAI_ENDPOINT, llm_config.OPENAI_EMBEDDING_MODEL, llm_config.OPENAI_API_KEY, \
+                   doc_config.CHROMA_PATH)
 
     print("Obtain prompts")
-    available_prompts = load_prompts(prompts_path)
+    available_prompts = load_prompts(doc_config.PROMPTS_PATH)
     document_type_prompt = ""
     for key, value in available_prompts.items():
         if key == document_type:
@@ -64,7 +39,7 @@ def start_processing_request(temperature, document_type, rag_query_scope_val):
     print("Start Query")
 
     response = query_rag(document_prompt, \
-            OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature, rag_query_scope_val)
+            llm_config.OPENAI_ENDPOINT, llm_config.OPENAI_MODEL, llm_config.OPENAI_API_KEY, llm_config.OPENAI_EMBEDDING_MODEL, llm_config.OPENAI_USERNAME, temperature, rag_query_scope_val)
     return  response
 
 

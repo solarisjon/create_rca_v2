@@ -1,5 +1,4 @@
 import os
-import configparser
 import openai
 
 def create_session(OPENAI_API_KEY, OPENAI_ENDPOINT):
@@ -32,9 +31,6 @@ def create_session(OPENAI_API_KEY, OPENAI_ENDPOINT):
     
     except FileNotFoundError as fnf_error:
         print(f"Error: {fnf_error}")
-        raise
-    except configparser.Error as config_error:
-        print(f"Error parsing configuration file: {config_error}")
         raise
     except openai.error.OpenAIError as openai_error:
         print(f"Error creating OpenAI client: {openai_error}")

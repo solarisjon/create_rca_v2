@@ -1,4 +1,3 @@
-import openai
 
 def chat_with_llm(prompt, client, username, temperature):
     """

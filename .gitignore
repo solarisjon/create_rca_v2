@@ -1,0 +1,8 @@
+chroma
+__pycache__
+config.ini
+Dockerfile
+uploads
+prompts/Dockerfile
+handle_exporting.py
+output.pdf

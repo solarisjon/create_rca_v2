@@ -40,11 +40,16 @@ def split_documents(documents: list[Document]):
     return text_splitter.split_documents(documents)
 
 
-def add_to_chroma(chunks: list[Document], OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY, \
-                                            chroma_path, chroma_overlap, chroma_size):
+def add_to_chroma(chunks: list[Document], OPENAI_ENDPOINT, 
+                                          OPENAI_EMBEDDING_MODEL,
+                                          OPENAPI_KEY, 
+                                          CHROMA_PATH):
     # Load the existing database.
     db = Chroma(
-        persist_directory=chroma_path, embedding_function=get_embedding_function(OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAPI_KEY)
+        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function(OPENAI_ENDPOINT, 
+                                                                                 OPENAI_EMBEDDING_MODEL, 
+                                                                                 OPENAPI_KEY
+                                                                                 )
     )
 
     # Calculate Page IDs.
