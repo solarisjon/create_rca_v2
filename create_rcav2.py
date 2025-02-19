@@ -22,14 +22,17 @@ def start_processing_request(temperature, document_type, rag_query_scope_val, do
 
     print("Load Documented")
     documents = load_documents(doc_config.UPLOADS_PATH)
+
     print("Chunk the Documents")
     chunked_data = chunk_documents(documents)
-    print(chunked_data[0])
+
+    print("Add to Chroma")
     add_to_chroma(chunked_data, llm_config.OPENAI_ENDPOINT, llm_config.OPENAI_EMBEDDING_MODEL, llm_config.OPENAI_API_KEY, \
                    doc_config.CHROMA_PATH)
 
     print("Obtain prompts")
     available_prompts = load_prompts(doc_config.PROMPTS_PATH)
+    
     document_type_prompt = ""
     for key, value in available_prompts.items():
         if key == document_type:

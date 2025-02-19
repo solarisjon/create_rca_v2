@@ -30,15 +30,6 @@ def load_documents(data_path):
     return document_loader.load()
 
 
-def split_documents(documents: list[Document]):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=80,
-        length_function=len,
-        is_separator_regex=False,
-    )
-    return text_splitter.split_documents(documents)
-
 
 def add_to_chroma(chunks: list[Document], OPENAI_ENDPOINT, 
                                           OPENAI_EMBEDDING_MODEL,
