@@ -3,6 +3,7 @@ from populate_database import add_to_chroma
 from query_rag import query_rag
 from handle_prompts import load_prompts
 from authenticate_ai import create_session
+from icecream import ic
 
 
 def start_processing_request(temperature, document_type, rag_query_scope_val, doc_config, llm_config):
@@ -37,8 +38,8 @@ def start_processing_request(temperature, document_type, rag_query_scope_val, do
     for key, value in available_prompts.items():
         if key == document_type:
             document_type_prompt = value
-    print(f'Document Prompt is {document_type_prompt}')
     document_prompt =  document_type_prompt + available_prompts["netapp"] + available_prompts["context"]
+
     print("Start Query")
 
     response = query_rag(document_prompt, \

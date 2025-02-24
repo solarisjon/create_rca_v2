@@ -1,5 +1,5 @@
 
-def chat_with_llm(prompt, client, username, temperature):
+def chat_with_llm(prompt: str, client: str, username: str, temperature: str) -> str:
     """
     Interact with the OpenAI API to get a response based on the prompt.
     Args:
@@ -7,7 +7,7 @@ def chat_with_llm(prompt, client, username, temperature):
         client: The OpenAI client.
         username (str): The username for the OpenAI API.
         temperature (float): The temperature for the OpenAI API.
-    Returns:
+    Returns::
         str: The response from the OpenAI API.
     """
     response = client.chat.completions.create(
@@ -16,5 +16,4 @@ def chat_with_llm(prompt, client, username, temperature):
         temperature=temperature,
         messages=[{"role": "user", "content": prompt}]
     )
-    print(response)
     return response.choices[0].message.content

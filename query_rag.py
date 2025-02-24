@@ -2,6 +2,8 @@ import argparse
 from langchain.vectorstores.chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.llms.ollama import Ollama
+from icecream import ic
+
 
 from get_embedding_function import get_embedding_function
 from chat_with_llm import chat_with_llm
@@ -30,6 +32,7 @@ def main():
 
 def query_rag(query_text: str, OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_KEY, OPENAI_EMBEDDING_MODEL, OPENAI_USERNAME, temperature, rag_query_scope_val):
     # Prepare the DB.
+    ic("in query_rag")
     embedding_function = get_embedding_function(OPENAI_ENDPOINT, OPENAI_EMBEDDING_MODEL, OPENAI_KEY)
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
@@ -39,8 +42,6 @@ def query_rag(query_text: str, OPENAI_ENDPOINT, OPENAI_MODEL, OPENAI_KEY, OPENAI
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
     prompt = prompt_template.format(context=context_text, question=query_text)
-
-    print(f'In query_rag --> {prompt}')
 
     response_text = chat_with_llm(prompt, create_session(OPENAI_KEY, OPENAI_ENDPOINT), OPENAI_USERNAME, temperature)
     

@@ -5,6 +5,7 @@ from handle_exporting import convert_html_to_pdf
 from conversion_functions import markdown_to_html
 from cleanup import clean_and_recreate_directory
 from config_objects import Document_Config, LLM_Config, RAG_Config, Chroma_Config
+from icecream import ic
 
 # Initialize some stuff
 response = ""
@@ -12,6 +13,14 @@ uploaded_files = None
 #doc_config, llm_config, rag_config, chroma_config = handle_config()
 
 
+@st.fragment
+def download_pdf():
+    st.download_button(
+            label="Download PDF",
+            data=pdf_response,
+            file_name="output.pdf",
+            mime="application/pdf"
+        )
 
 # Set the title of the app
 st.set_page_config(page_title="NetApp Formal RCA and Case Summarizer", page_icon="netapp_logo.png", layout="wide")
@@ -101,12 +110,15 @@ else:
 
 uploads_path = Document_Config.UPLOADS_PATH
 chroma_path = Document_Config.CHROMA_PATH
-
+pdf_response = ""
 
 print(f'{uploaded_files}')
 if st.button("Start"):
+    download_pdf()
+
     clean_and_recreate_directory(chroma_path)
     if uploaded_files:
+        ic(uploaded_files)
         # Ensure the uploads directory is clean
         clean_and_recreate_directory(uploads_path)
         file_paths = []
@@ -116,18 +128,13 @@ if st.button("Start"):
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             file_paths.append(file_path)
-        print(f'file path is {file_path}')
+        ic(file_path)
         response = process_request(temperature, document_type, rag_query_scope_val, Document_Config, LLM_Config)
+
         st.write(response)
         html_response = markdown_to_html(response)
         #st.sidebar.button("Export to PDF", on_click=export_to_pdf, args=(html_response,))
         pdf_response = convert_html_to_pdf(html_response)
-        st.sidebar.download_button(
-            label="Download PDF",
-            data=pdf_response,
-            file_name="output.pdf",
-            mime="application/pdf"
-        )
     else:
         st.write("Please upload CPE, CONTAP, SAP files using the sidebar.")
 
