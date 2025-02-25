@@ -1,3 +1,6 @@
+from icecream import ic
+
+
 def load_prompts(prompts_path):
     """
     Load prompts from files.
@@ -25,6 +28,7 @@ def get_prompt(prompts_list, prompts_path):
     """
     prompt = ""
     for p in prompts_list:
+        ic(f"Loading prompt: {p}")
         with open(f"{prompts_path}/{p}", 'r', encoding='utf-8') as file:
             prompt += file.read()
     return prompt

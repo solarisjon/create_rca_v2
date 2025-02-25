@@ -15,6 +15,19 @@ uploaded_files = None
 
 @st.fragment
 def download_pdf():
+    """
+    Displays a download button in a Streamlit app to download a PDF file.
+
+    This function uses Streamlit's `download_button` to create a button that,
+    when clicked, allows the user to download a PDF file. The PDF file is 
+    provided by the `pdf_response` variable.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     st.download_button(
             label="Download PDF",
             data=pdf_response,
@@ -112,8 +125,10 @@ uploads_path = Document_Config.UPLOADS_PATH
 chroma_path = Document_Config.CHROMA_PATH
 pdf_response = ""
 
-print(f'{uploaded_files}')
+ic(uploaded_files)
+
 if st.button("Start"):
+    ic("Start button clicked")
     download_pdf()
 
     clean_and_recreate_directory(chroma_path)
@@ -141,7 +156,7 @@ if st.button("Start"):
 
 
 def main():
-    print("in main")
+    ic("Enter main")
 
 # Run the Streamlit app
 if __name__ == "__main__":
