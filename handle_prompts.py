@@ -1,7 +1,8 @@
 from icecream import ic
 
 
-def load_prompts(prompts_path):
+
+def load_prompts(prompts_path: str) -> dict:
     """
     Load prompts from files.
     Returns:
@@ -14,7 +15,9 @@ def load_prompts(prompts_path):
         'netapp': get_prompt(['netapp_prompt'], prompts_path),
         'initial_analysis': get_prompt(['initial_analysis_prompt'], prompts_path),
         'formal_rca': get_prompt(['formal_rca_prompt'], prompts_path),
-        'context': get_prompt(['context'], prompts_path)
+        'context': get_prompt(['context'], prompts_path),
+        'kt_analysis': get_prompt(['kt-analysis_prompt'], prompts_path),
+        'sf_zk': get_prompt(['sf_zk_context'], prompts_path)
     }
     return prompts
 

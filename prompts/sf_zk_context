@@ -1,0 +1,462 @@
+ZooKeeper
+ Edit  View inline comments
+ Save for later  Watch  Share Send page
+Pages … Neutrino
+3 Jira linksAnalytics
+Created by Unknown User (mkuchta), last modified by Martin, Rich on Jan 12, 2022
+1Overview
+1.1Guarantees
+2Interface with Element
+2.1Server
+2.2Client
+2.3CService
+2.4Data Model
+2.5Watches
+2.6Ensemble Reconfiguration
+2.7Cluster Master Election
+3Development Process
+3.1Internal Fork
+3.2Interacting with Upstream
+3.3Building and Testing
+3.4Our Patches
+4Internals
+4.1zxid
+4.2Persistence
+4.3Startup
+5Troubleshooting
+5.1Debugging Leader Election
+5.2Client-Server Connectivity
+5.3Server-Server Connectivity
+5.4Data Inconsistency
+5.5fsync
+6Tools
+6.1Element APIs
+6.2zkCli.sh
+6.3The Four Letter Words
+7Outstanding Issues
+7.1Duplicate IPs
+7.2Network Corruption
+Overview
+ZooKeeper is a distributed coordination system used by Element. It's used to store cluster configuration data and coordinate tasks such as cluster master election. At its core, ZooKeeper is just a key/value store with some strong persistence and ordering guarantees. 
+ZooKeeper uses a client-server model. Multiple ZooKeeper servers make up an ensemble, and the servers in the ensemble use a consensus algorithm to apply updates from clients. For Element, an "ensemble node" in a cluster is one which is running a ZooKeeper server.
+NOTE: a common misconception is that the Cluster Master is somehow tied to this, but the Cluster Master may or may not be on an ensemble node. ZooKeeper is used to elect the Cluster Master, but it can be any node.
+Guarantees
+From the ZooKeeper website:
+Sequential Consistency - Updates from a client will be applied in the order that they were sent.
+Atomicity - Updates either succeed or fail. No partial results.
+Single System Image - A client will see the same view of the service regardless of the server that it connects to.
+Reliability - Once an update has been applied, it will persist from that time forward until a client overwrites the update.
+Timeliness - The clients view of the system is guaranteed to be up-to-date within a certain time bound.
+There's no possibility of split brain in ZooKeeper; each update must be committed by a majority of the servers, and neither reads nor writes are allowed if there's no majority.
+Interface with Element
+Server
+Element determines the membership of the ZooKeeper ensemble. The nodes in the ensemble each run a ZooKeeper server as a standalone process. The Bootstrapper in the Master Service handles starting and stopping the ZooKeeper server as ensemble membership changes. The server process itself runs as a child of sfsvcmgr, which responds to start and stop requests from the Bootstrapper. 
+Client
+We use the multithreaded variant of the C client library, which is linked into the Element binaries (sfapp, sfconfig, etc.). Element wraps the raw ZooKeeper function calls with the DBConnectionZK class, and this class is additionally wrapped by the DBClient class. DBClient is the lowest level interface to ZooKeeper used by the rest of the Element code. It essentially exposes the ZooKeeper API, but provides some other features like serialization and deserialization of C++ objects, and automatically reconnecting the client when it disconnects.
+CService
+The CService (config service) isn't a real element service, but it's a class which provides more structured access to data in ZooKeeper. It's another layer of abstraction on top of DBClient.
+Data Model
+ZooKeeper itself only deals in binary data. It makes no assumptions or guarantees about the format of data stored. For Element, we've mostly standardized on storing data as JSON. There are some exceptions like bin assignments, which use a custom binary format.
+Watches
+We rely heavily on the watch mechanism provided by ZooKeeper. Various read operations can also take a watch callback which will be called when the data changes in the future. A watch only fires once, after which it is deleted and a new watch must be set if the callback recipient is still interested in updates. 
+Ensemble Reconfiguration
+Element handles automatically reconfiguring the ZooKeeper ensemble based on the state of the cluster. Only the Cluster Master reconfigures the ensemble. Prior to 11.0, the ensemble is only reconfigured when nodes are added and removed and the ensemble size is either 3 or 5, with a 5 node ensemble being preferred if there are at least 5 nodes in the cluster.
+After 11.0, the ensemble is also reconfigured when nodes go offline, and offline nodes are not considered for ensemble membership. We track whether a node is "offline" for this purpose using cluster master candidate entries. It's expected that each master service creates an ephemeral znode under /config/master containing its service ID. The cluster master checks this path every 20 seconds. If a master service has been missing for 4 or more of these checks, the ensemble will be reconfigured.
+Also after 11.0, protection domains are used in determining ensemble membership. By default, each chassis (potentially containing up to 4 nodes for our 2x4 platforms) is a protection domain. Here, we try to assign ensemble membership to maximize the number of chassis failures we can tolerate without quorum loss. Essentially, the nodes are spread as evenly as possible across the chassis in the cluster. We still have either a 3 or 5 node ensemble and generally prefer 5 nodes when possible. There's an edge case where a 5 node cluster can have 3 ensemble nodes, which is when the protection domain sizes are 3, 1, 1. In this case, we assign a 3 node ensemble with one member in each protection domain so that we can still tolerate the loss of any single protection domain.
+As of this writing, there's a bug where offline nodes can be reconfigured into the ensemble when a new node becomes cluster master because the missing counter is only kept in memory and the new cluster master starts at 0. ELEM-11023
+Cluster Master Election
+Cluster master election is handled in ZooKeeper with the /config/master path. Under this path, each master service creates an entry with the Ephemeral and Sequential flags set. An Ephemeral entry only persists as long as the client's session is active, so these will disappear if the master service dies for any reason. The Sequential flag appends an increasing sequence number to the name of the entry. This is assigned by the server and is guaranteed to be unique.
+Each master service sets a watch for any changes to /config/master. The master service with the lowest sequence number is the Cluster Master. If a node is not acting as Cluster Master, gets a watch callback, reads the new state of /config/master and sees that it now has the lowest sequence number, it will construct a ClusterMaster object and start it. If a node currently acting as Cluster Master similarly sees that it no longer has the lowest sequence number, it will shut down its ClusterMaster object.
+There's a separate mechanism for master services to vote on the responsiveness of the current Cluster Master with the /voting/clusterMasterResponsive. Each master service constantly tries to connect to the MVIP and SVIP (see the ConnectionMonitor class for specifics). If either connection fails, it will vote that the cluster master is unresponsive. These votes are recorded as child entries of /voting/clusterMasterResponsive. If any master service sees that a majority of nodes in the cluster are voting that the cluster master is unresponsive, it will demote the current cluster by deleting its candidate entry from /config/master.
+Development Process
+Internal Fork
+We have an internal fork of ZooKeeper, located at https://bitbucket.ngage.netapp.com/projects/PPUB/repos/zookeeper/browse . solidfire/3.5.0 is our main branch, and it's based on an upstream commit slightly before the official 3.5.0 release. Since then, we've backported some bugfixes from upstream and developed some of our own. 
+There has been a desire to upgrade our fork to a newer upstream version, but it hasn't been prioritized yet. When that happens, we would likely make a separate solidfire/3.x.y branch from an official upstream release and either merge in or rebase solidfire/3.5.0 on top of it.
+The tags on the solidfire/3.5.0 branch correspond to ebuilds in ember. To make a change to zookeeper, commit to the solidfire/3.5.0 branch (preferably through pull request), tag the commit as solidfire/3.5.0_p{x} with the _p number incremented from the previous tag. From there, follow the normal process of updating a package in ember, described in the README (copy the previous ebuild, update the manifest, publish the distfile to jenkins, update packages.json to pull in the new version).
+Interacting with Upstream
+There are mailing lists at https://zookeeper.apache.org/lists.html , which are currently very active.
+We should collaborate with the ZooKeeper community as much as possible when fixing issues. The upstream bug tracker can be found at https://issues.apache.org/jira/projects/ZOOKEEPER/issues . Most issues we've seen in the past had already been reported by others here, so there's a lot to be gained by searching it. Anyone can sign up for an account here.
+Ideally, we should also get any fixes we make committed upstream.
+Instructions for contributing to ZooKeeper are at https://cwiki.apache.org/confluence/display/ZOOKEEPER/HowToContribute . Contributions are made by pull request to https://github.com/apache/zookeeper . This used to be done by submitting patch files on JIRA, and nobody in SolidFire has used the new contribution process via GitHub, but it seems like it should be easier. Good luck to whoever gets to do it first!
+Building and Testing
+ZooKeeper 3.5.0 builds with ant.
+
+Build dependencies for building the 3.5.0 branch of the project in VDI (will need to be installed if they are not present):
+ant
+libcppunit-dev
+libtool
+autotools-dev
+autoconf
+
+3.5.0 has some additional things that need to be tweaked in the project prior to building:
+diff --git a/build.xml b/build.xml
+index 1fdbcedb..c83c5165 100644
+--- a/build.xml
++++ b/build.xml
+@@ -103,7 +103,7 @@ xmlns:maven="antlib:org.apache.maven.artifact.ant">
+ 
+     <property name="ivy.version" value="2.2.0"/>
+     <property name="ivy.url"
+-              value=http://repo2.maven.org/maven2/org/apache/ivy/ivy />
++              value=http://sf-artifactory.solidfire.net/repo1-cache/org/apache/ivy/ivy />
+     <property name="ivy.home" value="${user.home}/.ant" />
+     <property name="ivy.lib" value="${build.dir}/lib"/>
+     <property name="ivy.package.lib" value="${build.dir}/package/lib"/>
+ 
+diff --git a/ivysettings.xml b/ivysettings.xml
+index 52cfa52d..28d018c7 100644
+--- a/ivysettings.xml
++++ b/ivysettings.xml
+@@ -17,6 +17,8 @@
+    limitations under the License.
+-->
+ 
++  <property name="maven-central.nexus"
++    value=http://nexus-rtp.eng.netapp.com:8081/nexus/content/repositories/maven-central//>
+   <property name="repo.maven.org"
+     value=http://repo1.maven.org/maven2/ override="false"/>
+   <property name="repo.jboss.org"
+@@ -29,6 +31,8 @@
+   <include url="${ivy.default.conf.dir}/ivyconf-local.xml"/>
+   <settings defaultResolver="default"/>
+   <resolvers>
++    <ibiblio name="nexus-maven2" root="${maven-central.nexus}"
++      pattern="${maven2.pattern.ext}" m2compatible="true"/>
+     <ibiblio name="maven2" root="${repo.maven.org}"
+       pattern="${maven2.pattern.ext}" m2compatible="true"/>
+     <ibiblio name="jboss-maven2" root="${repo.jboss.org}"
+@@ -37,6 +41,7 @@
+       pattern="${maven2.pattern.ext}" m2compatible="true"/>
+ 
+     <chain name="default" dual="true">
++      <resolver ref="nexus-maven2"/>
+       <resolver ref="maven2"/>
+       <resolver ref="jboss-maven2"/>
+       <resolver ref="sun-maven2"/>
+
+Also need to address an issue due to a symbol moving in glibc:
+diff --git a/src/c/src/mt_adaptor.c b/src/c/src/mt_adaptor.c
+index 5df28a43..d1b6e266 100644
+--- a/src/c/src/mt_adaptor.c
++++ b/src/c/src/mt_adaptor.c
+@@ -31,6 +31,7 @@
+ #include "zookeeper_log.h"
+ 
+ #include <stdlib.h>
++#include <stdint.h>
+ #include <stdio.h>
+ #include <time.h>
+ #include <fcntl.h>
+
+Build dependencies for building the 3.6.X branch:
+maven
+python-setuptools python2.7-dev
+openssl libssl-dev
+libsasl2-modules-gssapi-mit libsasl2-modules libsasl2-dev
+Also need to update maven's /.m2/settings.xml or /etc/maven/settings.xml to point to the maven mirror:
+<settings>
+    <mirrors>
+        <mirror>
+            <id>netapp-nexus</id>
+            <name>Maven Repository Manager running on repo.mycompany.com</name>
+            <url>http://nexus-rtp.eng.netapp.com:8081/nexus/content/repositories/maven-central</url>
+            <mirrorOf>*</mirrorOf>
+        </mirror>
+    </mirrors>
+    ...
+</settings>
+
+General build dependency:
+java (ideally, the version matches what is used in Ember (openjdk-8u252-b09)/CLP environment, but openjdk-8u272-b10 is known to work for both)
+
+To maintain multiple java versions in VDI, import the jdk bits and unpack them into a directory in your VDI workspace.
+
+Command line executions for building/running tests in VDI
+3.5.0:
+    JAVA_HOME=<path-to-jdk-version> ant -Djavac.args."-Xlint -Xmaxwarns 1000" clean compile_jute tar test
+3.6.X:
+    JAVA_HOME=<path-to-jdk-version> mvn verify spotbugs:check checkstyle:check -Pfull-build -Dsurefire-forkcount=4
+Our Patches
+Here's a list of changes we've made to zookeeper on the solidfire/3.5.0 branch. This list may not be complete, so look at the repository for any I missed: https://bitbucket.ngage.netapp.com/projects/PPUB/repos/zookeeper/commits
+Commit
+Message
+Links
+Comments
+4dea4ce9749	
+Case 120 / ZOOKEEPER-829 - Add /sessions path to allow inspecting and expiring current sessions
+
+From case-120.patch in libs/zookeeper
+https://issues.apache.org/jira/browse/ZOOKEEPER-829
+Can't find ELEM ticket
+This is needed for Element unit tests to be able to forcibly expire sessions. Shouldn't be needed outside unit tests.
+Marshall submitted this patch upstream, but he never got a chance to address some feedback. The bug hasn't had any activity since 2012.
+08ce0cefb62	
+Case 3869 - Make zktreeutil keep waiting to connect on ZOO_NOTCONNECTED_STATE instead of quitting.
+
+From case-3869.patch in libs/zookeeper
+SFSAN-3326 - Patch zktreeutil to deal with undocumented state 999 CLOSED
+zk_adaptor.h:#define NOTCONNECTED_STATE_DEF 999
+Might be necessary for zktreeutil to work. Not sure about this one. The connection state should go from ZOO_NOTCONNECTED_STATE to ZOO_CONNECTING_STATE quickly, but it seems like this might be a race condition where the state is checked before the transition and zktreeutil doesn't handle ZOO_NOTCONNECTED_STATE .
+8243f60a897	
+Case 5569 - Remove reverse DNS lookups
+
+From case-5569.patch in libs/zookeeper
+SFSAN-4552 - Calligo's internal DNS server wasn't reachable on the network CLOSED
+https://issues.apache.org/jira/browse/ZOOKEEPER-2171
+This fixes an issue where zookeeper would unnecessarily perform DNS lookups, so a broken DNS server could prevent it from working.
+We fixed this in 2012, but I can't see that we ever submitted anything upstream. The same problem seems to have been independently discovered and fixed in ZOOKEEPER-2171 in 2015.
+We should compare our change to theirs and see if we can discard ours entirely when we upgrade.
+325c869fd23	
+ZOOKEEPER-1167 - Add sync() function to C client
+
+From ZOOKEEPER-1167.patch in libs/zookeeper
+https://issues.apache.org/jira/browse/ZOOKEEPER-1167	
+We submitted this change upstream, but there was some disagreement on whether it was a necessary change and it was never accepted.
+zoo_sync() is a simple synchronous wrapper around zoo_async(). The argument was that zoo_async does exactly the same job as zoo_sync. Due to ordering guarantees, it doesn't matter if the client synchronously waits for the sync() call to complete before issuing a read. Either way, the sync operation is inserted into the write order on the server side and the read is performed after it completes, so the client will see the latest data. I think that's true, so we might be able to change our code to use zoo_async instead.
+But there have also been recommendations against mixing the sync and async APIs in the past, so it makes sense for zoo_sync to exist from that perspective.
+The least risky solution is probably to keep this patch when we upgrade.
+24e1e7d72df	
+Case 6917 / ZOOKEEPER-1520 - patch zookeeper to not crash on restart if it encounters EOF when it should have seen an EOR
+
+From ZOOKEEPER-1520.patch in libs/zookeeper
+SFSAN-5504 - ensure ntp does not cause quorum issues RESOLVED
+https://issues.apache.org/jira/browse/ZOOKEEPER-1520
+Not sure why this patch was linked to case 6917, but it's like that in Kiln:
+[Kiln] Kiln case 6917 - patch zookeeper to not crash on restart if it encounters EOF when it should have seen an EOR
+Not convinced that we need this patch, but it's from before my time. Seems like we took it directly from the submitted patch on ZOOKEEPER-1520, but that was never committed.
+6edda074c75	
+Case 6917 / ZOOKEEPER-1366 - Change server code to use elapsed time instead of system time
+
+From ZOOKEEPER-1366.patch in libs/zookeeper
+https://issues.apache.org/jira/browse/ZOOKEEPER-1366
+SFSAN-5504 - ensure ntp does not cause quorum issues RESOLVED
+It took a few years, but this was committed upstream. Looks like we applied a slightly earlier version of the final patch. We should be able to discard ours and just take the upstream code when we upgrade.
+c6a494fd83e	
+Case 13068 - Allow C client to explicitly bind to a local IP via new zookeeper_init3
+
+From case-13068.patch in libs/zookeeper
+EOS-7225 - EIO Errors after dropping Bond10G interface CLOSED
+Element needs this. Doesn't look like we ever submitted anything upstream, so we'll have to keep the patch.
+We need to bind to a specific IP for the reasons described in EOS-7225.
+1a18bc2683d	
+Case 13399 - Add logging in C client to help debugging cases where the client's view goes backwards in time
+
+From case-13399.patch in libs/zookeeper
+EOS-3149 - Zookeeper view goes backwards in time RESOLVED
+Some extra logging added to help us track down the data inconsistency bugs of the past.
+The logging on the server side has been useful even in more recent years, so I'd recommend keeping this if it's not too difficult.
+d59e652462b	
+Case 15513 / Case 15286 / ZOOKEEPER-1865 - Make Learner obey initLimit when trying to connect to the leader.
+
+From ZOOKEEPER-1865-nanoTime.patch in libs/zookeeper
+EOS-501 - Integrate ZK connectToLeader patch into our ZK lib CLOSED EOS-430 - Long ZK leader election (60+ seconds) during Round Robin 10G Network Restart on ZK leader stress test [4000 sessions] CLOSED https://issues.apache.org/jira/browse/ZOOKEEPER-1865
+This patch was committed upstream:
+commit 15b9806f26a4f4f07927c825ec9d3fa0bbdf902b
+Author: Michi Mutsuzaki <michim@apache.org>
+Date: Sun Mar 15 07:56:56 2015 +0000
+ZOOKEEPER-1865 Fix retry logic in Learner.connectToLeader() (Edward Carter via michim)
+
+git-svn-id: https://svn.apache.org/repos/asf/zookeeper/branches/branch-3.5@1666785 13f79535-47bb-0310-9956-ffa450edef68
+
+ZOOKEEPER-1865 was reopened because of a failing unit test, but the change is still present in the 3.5 branch. 
+If we go to 3.6, this code has had huge changes under https://issues.apache.org/jira/browse/ZOOKEEPER-3188
+Whether we go to 3.5.x or 3.6.x, it doesn't seem like we need this patch.
+621f75a175c	
+Case 15148 / ZOOKEEPER-1863 - Fix race condition in CommitProcessor leading to out of order request completion.
+
+From ZOOKEEPER-1863.patch in libs/zookeeper
+https://issues.apache.org/jira/browse/ZOOKEEPER-1863
+EOS-2620 - ensembleDegraded messages logged, unable to connect to ZooKeeper from affected node CLOSED
+Patch taken from upstream bug, committed in 3.5.0. We can discard our patch when we upgrade.
+0f477f03001	
+Case 17674 / ZOOKEEPER-1485 - Fix cxid overflow in C client
+
+From case-17674.patch in libs/zookeeper
+EOS-3990 - Zookeeper C client code (not the server code but the client code) encountered a fatal error (segmentation fault) - Old case 7849 CLOSED
+https://issues.apache.org/jira/browse/ZOOKEEPER-1485
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Internals
+ZooKeeper uses a custom consensus algorithm called Zab (ZooKeeper Atomic Broadcast).
+Here are some external resources for learning about how ZooKeeper works which go into way more detail than this page:
+The ZooKeeper internals page on the main site
+ZooKeeper: Wait-free coordination for Internet-scale systems - a 2010 paper giving an overview of ZooKeeper
+Zab: High-performance broadcast for primary-backup systems - a 2011 paper going into greater detail on Zab
+zxid
+The zxid (ZooKeeper transaction ID) is a core concept in ZooKeeper. This is the monotonically increasing ID that all updates get stamped with. It's made up of two components: the upper 32 bits contain the epoch, which increments when there's a new leader. The lower 32 bits contain a counter within that epoch.
+A zxid uniquely identifies a particular update. A leader requires support from a quorum to start a new epoch, and each update within the epoch also requires quorum support to be committed.
+Persistence
+ZooKeeper persists its data using two types of files: snapshots and transaction logs. These are each named with a zxid. The zxid of a snapshot is the current zxid when the snapshot was taken, and the zxid of a transaction log is the first zxid in that log.
+Snapshots are taken at regular intervals, and a new transaction log is started when the previous one reaches a certain size. Each update is written to the transaction log before being acknowledged, and a client is guaranteed that a quorum of servers have persisted the update to their transaction logs when it receives a response.
+These transaction logs and snapshots are not read at all in steady state operation. Their purpose is to restore the data tree when the server restarts. A copy of the data tree is kept in memory, and this copy is what's used to serve client reads.
+Snapshots and transaction logs are regularly cleaned up to save disk space. Only the last 6 of each are kept, and the rest are automatically deleted once an hour.
+Startup
+When the ZooKeeper server starts, it reads its configuration from the .cfg and .cfg.dynamic files at /sf/data/zookeeper/$CIP/ . It also loads its latest snapshot from the /sf/data/zookeeper/$CIP/version-2/, then replays transactions from all later transaction logs on top of this snapshot to get the latest data tree.
+The server then connects to its configured list of peers on the election port (2183), and starts exchanging votes with the other servers to elect a leader. More detail about the election process in the "Debugging Leader Election" section.
+Troubleshooting
+Debugging Leader Election
+Leader election is core to ZooKeeper's operation, so it's one of the first things to check if something is wrong. From a directory containing unpacked support bundles for a cluster, run:
+ zgrep -aEh "(LEADER ELECTION TOOK|- LOOKING|starting up and)" */logs/sf-master.info* | sort
+which will output log messages matching those strings from all the sf-master.info files, sorted by timestamp:
+2020-09-08T16:12:59.131880Z zookeeper - INFO [QuorumPeer[myid=4]/10.117.209.91:2181:QuorumPeer@888] - LOOKING
+2020-09-08T16:12:59.136722Z zookeeper - INFO [QuorumPeer[myid=3]/10.117.209.19:2181:QuorumPeer@888] - LOOKING
+2020-09-08T16:12:59.143045Z zookeeper - INFO [QuorumPeer[myid=1]/10.117.208.138:2181:QuorumPeer@888] - LOOKING
+2020-09-08T16:12:59.152242Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:QuorumPeer@888] - LOOKING
+2020-09-08T16:12:59.390240Z zookeeper - INFO [QuorumPeer[myid=4]/10.117.209.91:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599559678563
+2020-09-08T16:12:59.396755Z zookeeper - INFO [QuorumPeer[myid=1]/10.117.208.138:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599581053449
+2020-09-08T16:12:59.397793Z zookeeper - INFO [QuorumPeer[myid=3]/10.117.209.19:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599559552184
+2020-09-08T16:12:59.401861Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:Leader@447] - LEADING - LEADER ELECTION TOOK - -1599559632297
+2020-09-08T16:13:00.431592Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:Leader@1255] - Have quorum of supporters, sids: [ [3, 4, 5] ]; starting up and setting last processed zxid: 0x300000000
+2020-09-08T16:14:42.563106Z zookeeper - INFO [QuorumPeer[myid=4]/10.117.209.91:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599559678563
+2020-09-08T16:14:42.573485Z zookeeper - INFO [QuorumPeer[myid=3]/10.117.209.19:2181:Leader@447] - LEADING - LEADER ELECTION TOOK - -1599559552180
+2020-09-08T16:14:42.576218Z zookeeper - INFO [QuorumPeer[myid=1]/10.117.208.138:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599581053449
+2020-09-08T16:14:42.644821Z zookeeper - INFO [QuorumPeer[myid=3]/10.117.209.19:2181:Leader@1255] - Have quorum of supporters, sids: [ [1, 3] ]; starting up and setting last processed zxid: 0x400000000
+2020-09-08T16:14:44.473056Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599559632301
+2020-09-08T17:35:32.583965Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.255:2181:QuorumPeer@888] - LOOKING
+2020-09-08T17:35:32.598959Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.255:2181:QuorumPeer@888] - LOOKING
+2020-09-08T17:35:32.616645Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.255:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599586377545
+2020-09-08T17:35:42.968586Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:QuorumPeer@888] - LOOKING
+2020-09-08T17:35:42.991016Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.209.128:2181:Follower@66] - FOLLOWING - LEADER ELECTION TOOK - -1599559632291
+The myid=x seen here is the server ID, which is the same as the nodeID for the node.
+A server initially goes into the LOOKING state when it starts up. From there, it connects to the peers listed in its configuration file on the election port (2183) and starts exchanging votes. Each server starts out by sending a vote for itself to its peers, and a message like this is logged when a vote is received:
+2020-09-08T16:12:59.189587Z zookeeper - INFO [WorkerReceiver[myid=4]:FastLeaderElection@611] - Notification: 5 (n.leader), 0x200000b36 (n.zxid), 0x1 (n.round), LOOKING (n.state), 1 (n.sid), 0x2 (n.peerEPoch), LOOKING (my state)200000621 (n.config version)
+This is what all the fields mean:
+n.leader: The sender's proposed leader (server ID, same as node ID)
+n.zxid: The last seen zxid of the sender
+n.round: The leader election round (usually not relevant)
+n.state: The sender's server state (LOOKING, FOLLOWING, LEADING)
+n.sid: The sender's server ID (same as nodeID)
+n.peerEPoch: The sender's epoch (upper 32 bits of the zxid)
+n.config  version: The sender's ensemble config version. This increments when an ensemble reconfiguration happens, and servers will automatically adopt the latest config they see.
+Each server will update its vote if it sees a vote with a higher zxid than it currently knows about. The server with the highest zxid should always win the election, and the highest server ID is used as a tiebreaker when zxids are equal.
+When a server receives votes from a majority of the ensemble declaring it the leader, it will transition to the LEADING state and start listening for followers on port 2182. When a server receives votes from a majority of the ensemble declaring another server the leader, it will transition to the FOLLOWING state and try to connect to the elected leader on port 2182.
+When a follower connects to the leader, the leader will compare its own last zxid against the follower's. Depending on how far apart they are (and some other factors), the leader will decide to send a diff containing individual transactions between the follower's and leader's zxid, or it will send a snapshot containing the entire data tree. See LearnerHandler.run() in the source for the specific logic.
+2020-07-24T11:27:16.987002Z zookeeper - INFO [LearnerHandler-/10.117.208.203:42064:LearnerHandler@651] - Synchronizing with Follower sid: 3 maxCommittedLog=0x1000037e1 minCommittedLog=0x1000035ed lastProcessedZxid=0x1000037e1 peerLastZxid=0x1000037d6
+2020-07-24T11:27:16.987175Z zookeeper - INFO [LearnerHandler-/10.117.208.203:42064:LearnerHandler@733] - Using committedLog for peer sid: 3
+2020-07-24T11:27:16.987439Z zookeeper - INFO [LearnerHandler-/10.117.208.203:42064:LearnerHandler@818] - Sending DIFF zxid=0x1000037e1 for peer sid: 3
+If there are networking issues, things sometimes go wrong here. Look for exception stack traces in either the leader or follower logs to get clues about what's wrong.
+2020-07-07T04:53:54.719911Z zookeeper - WARN [QuorumPeer[myid=15]/10.1.1.45:2181:Follower@93] - Exception when following the leader
+2020-07-07T04:53:54.719962Z localhost java.net.SocketTimeoutException: Read timed out
+2020-07-07T04:53:54.719994Z localhost at java.net.SocketInputStream.socketRead0(Native Method)
+If the leader election happens but the leader can't send a snapshot, that can be a sign of an MTU misconfiguration on the switch. Most of the leader election messages are tiny, but the snapshot will be multiple megabytes and will be sent as larger packets which might be dropped on the switch if the MTU is configured incorrectly.
+Once a follower has the latest data, the leader will send another message with the opcode UPTODATE, and this will be logged on the follower
+2020-07-24T11:29:23.103300Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.191:2181:Learner@504] - Learner received UPTODATE message
+Once the leader has a quorum of up to date followers, it will log this message:
+2020-07-24T10:32:14.505545Z zookeeper - INFO [QuorumPeer[myid=5]/10.117.210.18:2181:Leader@1255] - Have quorum of supporters, sids: [ [3, 4, 5],[3, 4, 5] ]; starting up and setting last processed zxid: 0x100000000
+From there, the leader and any synced followers can start establishing sessions for clients and processing requests. Look for these session establishment messages for evidence that this is happening:
+2020-07-24T10:32:21.929749Z zookeeper - INFO [CommitProcWorkThread-2:ZooKeeperServer@611] - Established session 0x5000011ef2b0001 with negotiated timeout 20000 for client /10.117.208.191:38897
+Client-Server Connectivity
+This will manifest as various connection loss exceptions in the element code: xDBOperationTimeout, xDBConnectionLoss, xDBClosing, xDBInvalidState. The distinction between them usually isn't too important. Look for messages from the LogZKMessage function to see what went wrong when connecting to the server:
+2020-08-04T23:22:53.466829Z NLABP1214 master-1[20011]: [UNCERR-3] [DB] 21120 master-1 cs/DBConnectionZK.cpp:737:LogZKMessage|[#### WILL SUPPRESS ####] Socket [10.117.210.19:2181] zk retcode=-4, errno=112(Host is down): failed while receiving a server response
+These will show which IP address was being connected to, so check what was happening on the remote end at that point in time. The client will automatically try connecting to every server in the ensemble (and will keep retrying indefinitely). This message will be printed after all the servers have been tried:
+2020-08-05T01:20:49.336301Z NLABP1214 block92[14171]: [EXPERR-4] [DB] 19246 block92 cs/DBConnectionZK.cpp:741:LogZKMessage|Delaying connection after exhaustively trying all servers [10.117.208.190:2181,10.117.208.191:2181,10.117.209.126:2181,10.117.210.18:2181,10.117.210.19:2181]
+There's no exact formula for debugging these issues, but look at which connections are failing and which nodes they involve. There will sometimes be a pattern which points to an issue with a particular node. If client connections to all nodes are failing, check to see if there's quorum on the server side.
+Server-Server Connectivity
+If it's suspected that ZooKeeper servers in the cluster are having trouble communicating, the first thing to look at is leader election. Look for votes being exchanged (described in the leader election section above). If a server is only receiving votes from itself, that's a pretty good sign that something is wrong with networking on the node.
+Data Inconsistency
+There have been bugs in the past where ZooKeeper's guarantees are broken and the data gets out of sync somehow between the different members of the ensemble. All of the known bugs like this have been fixed, but it's possible that there will be more in the future. There's no specific signature to look for, but it can sometimes be noticed in support bundles if there are large differences between the zk_data.zktree files, which contain a dump of the entire data tree. There will be some differences as these will be captured at slightly different times.
+zkCli.sh (described in the Tools section) can be used to individually connect to each ensemble member and see that server's view of the data.
+If it's found that one ZooKeeper server has incorrect data, the most straightforward fix is to delete the data and let it get a fresh snapshot from the leader. Stop the solidfire service on the node (which also stops ZooKeeper since it's managed by sfsvcmgr), delete the contents of the /sf/data/zookeeper/$CIP/version-2/ directory which contains the transaction logs and snapshots, then start the solidfire service. You should see the ZooKeeper server start with no data (zxid=0x0), and it should receive a snapshot from the leader, then write this new snapshot to disk.
+2020-07-24T10:32:17.349168Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.191:2181:FastLeaderElection@809] - New election. My id = 2, proposed zxid=0x0
+2020-07-24T11:29:22.979702Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.191:2181:Learner@377] - Getting a snapshot from leader
+2020-07-24T10:32:17.443521Z zookeeper - INFO [QuorumPeer[myid=2]/10.117.208.191:2181:FileTxnSnapLog@297] - Snapshotting: 0x10000007e to /sf/data/zookeeper/10.117.208.191/version-2/snapshot.10000007e
+fsync
+The ZooKeeper server has to fsync the transaction log before acknowledging a write to ensure the update is persisted to disk. If this takes too long, this message will be printed:
+2020-08-04T21:23:09.907258Z zookeeper - WARN [SyncThread:2:FileTxnLog@322] - fsync-ing the write ahead log in SyncThread:2 took 12005ms which will adversely effect operation latency. See the ZooKeeper troubleshooting guide
+If this happens once, it's usually because some other large data was being written to the filesystem at the same time and the fsync had to wait for it to also be written to disk. If it's happening constantly, look at the health of the disk. We've had failing boot drives cause issues like this in the past.
+It's usually not a big deal for the ensemble if this happens, but an excessively long fsync time can cause the server to be temporarily rejected by the leader for failing to respond in time. When this happens, it has to restart the election process and reconnect to the leader. This can cause a momentary EnsembleDegraded cluster fault if we happen to be running that fault checker at the right time.
+Tools
+Element APIs
+The element cluster API exposes a set of methods for directly manipulating data in ZooKeeper: CreateDatabaseEntry, DeleteDatabaseEntry, GetDatabaseEntry, SetDatabaseEntry, ListDatabaseChildren, ListDatabaseChildrenData. These are documented in more detail in this document: SolidFire Distributed Database API 
+zkCli.sh
+WARNING: zkCli is best used only for READING data from ZooKeeper. The line parser breaks on spaces, so it can't be used to set values which contain spaces. If you try to set a value with a space in it, you will probably write invalid JSON and crash the whole cluster. Use the element APIs for writing data whenever possible since they ensure the data being written is valid JSON.
+zkCli is a simple command line client for ZooKeeper. zkCli.sh is itself a simple shell script which runs some Java code from the class org.apache.zookeeper.ZooKeeperMain. It's installed on SolidFire nodes by default and included in the PATH, so it can be run from a shell like this, where x.x.x.x is the CIP of an ensemble node in the cluster:
+zkCli.sh -server x.x.x.x
+From there, run the command 'help' for information about the other available commands:
+[zk: x.x.x.x(CONNECTED) 0] help
+ZooKeeper -server host:port cmd args
+addauth scheme auth
+close
+config [-c] [-w] [-s]
+connect host:port
+create [-s] [-e] path [data] [acl]
+delete [-v version] path
+deleteall path
+delquota [-n|-b] path
+get [-s] [-w] path
+getAcl [-s] path
+history
+listquota path
+ls [-w] path
+ls2 path [watch]
+printwatches on|off
+quit
+reconfig [-s] [-v version] [[-file path] | [-members serverID=host:port1:port2;port3[,...]*]] | [-add serverId=host:port1:port2;port3[,...]]* [-remove serverId[,...]*]
+redo cmdno
+rmr path
+set [-s] [-v version] path data
+setAcl [-s] [-v version] path acl
+setquota -n|-b val path
+stat [-w] path
+sync path
+The most commonly used commands would be 'ls' and 'get' to read data .
+ls /
+[cluster, volumeaccessgroups, voting, bulkops, locks, features, elementauth, stats, activebinchanges, configfiles, events, killservices, chapcredentials, zookeeper, apiconstants, clusterpairs, binchanges, volumes, fips, vvol, transactions, snapmirrorendpoints, groupsnapshots, encryptionatrest, backuptargets, passwordsegments, gcproperties, binassignmentproperties, idpConfigs, volumepairs, admins, slices, disks, qospolicies, foo, debugoptions, ensemble, keymanagement, initiators, scheduler, slicesnapshots, asyncresults, gcgeneration, daemons, bins, virtualnetworks, deletedVolumes, snapmirror, groupclones, deletedservices, pendingactivenodes, services, authsessions, pendingnodes, snapshots, autoaddactivenodes, nodes, accounts, config, softwareencryptionatrest]
+ls /disks
+[11, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+get /disks/1
+{"assignedService":5,"asyncResultIDs":[],"attributes":{},"capacity":299989204992,"customerSliceFileCapacity":134951731200,"driveFailureDetail":"None","driveID":1,"driveSecurityFaultReason":"None","driveStatus":"assigned","driveType":"Slice","failCount":0,"keyID":"00000000-0000-0000-0000-000000000000","keyProviderID":0,"nodeID":1,"reservedSliceFileCapacity":67475865600,"segmentFileSize":104857600,"serial":"scsi-SATA_VRFSD3400GNCVMT205121638-part4","slot":-1,"usableCapacity":299892736000}
+It's also possible to manipulate data with the create, delete, set commands:
+[zk: 10.117.80.137(CONNECTED) 8] create /foo bar
+Created /foo
+[zk: 10.117.80.137(CONNECTED) 9] get /foo
+bar
+[zk: 10.117.80.137(CONNECTED) 10] set /foo baz
+[zk: 10.117.80.137(CONNECTED) 11] get /foo
+baz
+The Four Letter Words
+ZooKeeper has a set of simple commands you can run to check the health of a server. These typically won't work if there's no ZooKeeper quorum. but they can help determine the state of things. Here are a couple commands:
+echo stat | nc <storage ip> 2181 # Lists brief details for the server and connected clients.
+
+echo mntr | nc <storage ip> 2181 # Outputs a list of variables that could be used for monitoring the health of the cluster.
+
+You can find the complete list of 4LW commands here, though some are not available on our version of ZooKeeper (3.5.0): https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_4lw
+Outstanding Issues
+Duplicate IPs
+CSD-3941 - All volumes offline RESOLVED
+ZooKeeper does not handle duplicate IP addresses well at all. In this instance, two clusters with the same IPs were brought up. From ZooKeeper's perspective the ensemble was only configured for 3 nodes, but there were 6 all claiming to be part of the same ensemble. Since only 2 nodes are required for quorum in a 3 node ensemble, 6 nodes could potentially result in three-way split brain with independently acting quorums.
+Our proposed fix for this is to upgrade ZooKeeper to a version which supports server-server authentication and use uniquely generated credentials for each cluster. This way, the ZooKeeper servers from different clusters would be unable to connect to each other even if they had the same IP addresses.
+Network Corruption
+CSD-3263 - No MVIP or SVIP on the cluster RESOLVED
+There's no checksum on client requests. If packets are being corrupted on the network, but some still pass TCP checksums, the ZooKeeper server might receive a seemingly valid request from a client with corrupted data. This has only been seen once.

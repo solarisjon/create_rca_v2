@@ -38,7 +38,7 @@ def start_processing_request(temperature, document_type, rag_query_scope_val, do
     for key, value in available_prompts.items():
         if key == document_type:
             document_type_prompt = value
-    document_prompt =  document_type_prompt + available_prompts["netapp"] + available_prompts["context"]
+    document_prompt =  document_type_prompt + available_prompts["netapp"] + available_prompts["context"] + available_prompts["sf_zk"]
 
     print("Start Query")
 

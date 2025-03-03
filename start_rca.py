@@ -6,6 +6,7 @@ from conversion_functions import markdown_to_html
 from cleanup import clean_and_recreate_directory
 from config_objects import Document_Config, LLM_Config, RAG_Config, Chroma_Config
 from icecream import ic
+import collections.abc as c
 
 # Initialize some stuff
 response = ""
@@ -14,7 +15,7 @@ uploaded_files = None
 
 
 @st.fragment
-def download_pdf():
+def download_pdf() -> None:
     """
     Displays a download button in a Streamlit app to download a PDF file.
 
@@ -97,7 +98,9 @@ uploaded_files = st.sidebar.file_uploader("Choose PDF files", type="pdf", accept
 
 # Sidebar for selecting RCA type
 st.sidebar.header("Select RCA Type")
-document_type = st.sidebar.selectbox("Choose the type of RCA", ["Formal RCA", "Initial Case Analysis"])
+document_type = st.sidebar.selectbox("Choose the type of RCA", ["Formal RCA", 
+                                                                "Initial Case Analysis",
+                                                                "KT Analysis"])
 
 # Sidebar for setting temperature
 st.sidebar.header("How creative to allow the system to be")
@@ -116,6 +119,8 @@ if document_type == "Initial Case Analysis":
     document_type = "initial_analysis"
 elif document_type == "Formal RCA":
     document_type = "formal_rca"
+elif document_type == "KT Analysis":
+    document_type = "kt_analysis"
 else:
     print("No valid document type found")
 
